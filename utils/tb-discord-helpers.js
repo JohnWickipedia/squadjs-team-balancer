@@ -348,23 +348,47 @@ export const DiscordHelpers = {
       return false;
     }
 
+    // Standardize Input: Ensure 'embeds' array is used internally for objects
+    let payload = content;
+    if (typeof content === 'object' && content !== null) {
+      payload = { ...content };
+      if (payload.embed && !payload.embeds) {
+        payload.embeds = [payload.embed];
+        delete payload.embed;
+      }
+    }
+
+    const executeSend = async (data, isRetry = false) => {
+      try {
+        await channel.send(data);
+        return true;
+      } catch (err) {
+        // Rate Limit Handling (429)
+        if (err.status === 429 && !isRetry) {
+          let waitTime = 1000;
+          if (err.retryAfter) waitTime = err.retryAfter;
+          else if (err.headers && err.headers['retry-after']) waitTime = parseFloat(err.headers['retry-after']) * 1000;
+
+          Logger.verbose('TeamBalancer', 1, `Discord 429 Rate Limit hit. Waiting ${waitTime}ms before retry.`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          return executeSend(data, true);
+        }
+
+        // Compatibility: Discord.js v12 Fallback
+        if (err.message === 'Cannot send an empty message' && data.embeds && data.embeds.length > 0) {
+          const legacyData = { ...data, embed: data.embeds[0] };
+          delete legacyData.embeds;
+          return executeSend(legacyData, isRetry);
+        }
+
+        throw err;
+      }
+    };
+
     try {
-      await channel.send(content);
+      await executeSend(payload);
       return true;
     } catch (err) {
-      // Compatibility fix for Discord.js v12 which throws "Cannot send an empty message"
-      // when receiving { embeds: [...] } instead of { embed: ... }
-      if (err.message === 'Cannot send an empty message' && content.embeds && Array.isArray(content.embeds) && content.embeds.length > 0) {
-        try {
-          const legacyContent = { ...content, embed: content.embeds[0] };
-          delete legacyContent.embeds;
-          await channel.send(legacyContent);
-          return true;
-        } catch (legacyErr) {
-          Logger.verbose('TeamBalancer', 1, `Discord send failed (Legacy Fallback): ${legacyErr.message}`);
-        }
-      }
-
       const errMsg = `Discord send failed: ${err.message}`;
       if (!suppressErrors) throw new Error(errMsg);
       Logger.verbose('TeamBalancer', 1, errMsg);

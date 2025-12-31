@@ -21,6 +21,22 @@ export default class TBDatabase {
     this.TeamBalancerStateModel = null;
   }
 
+  async _executeWithRetry(logicFn, attempts = 5) {
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        return await logicFn();
+      } catch (err) {
+        const isLocked = err.message && (err.message.includes('SQLITE_BUSY') || err.message.includes('database is locked'));
+        if (isLocked && i < attempts) {
+          const jitter = Math.random() * 500;
+          await new Promise(resolve => setTimeout(resolve, 200 + jitter));
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
   async initDB() {
     try {
       if (!this.sequelize) {
@@ -42,7 +58,8 @@ export default class TBDatabase {
 
       await this.TeamBalancerStateModel.sync({ alter: true });
 
-      return await this.sequelize.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
+      return await this._executeWithRetry(async () => {
+        return await this.sequelize.transaction(async (t) => {
         const [record] = await this.TeamBalancerStateModel.findOrCreate({
           where: { id: 1 },
           defaults: {
@@ -83,6 +100,7 @@ export default class TBDatabase {
           isStale: true
         };
       });
+      });
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] initDB failed: ${err.message}`);
       return { winStreakTeam: null, winStreakCount: 0, lastSyncTimestamp: null, lastScrambleTime: null, isStale: true };
@@ -90,30 +108,33 @@ export default class TBDatabase {
   }
 
   async saveState(team, count) {
+    if (!this.TeamBalancerStateModel) {
+      Logger.verbose('TeamBalancer', 1, '[DB] saveState called before initDB.');
+      return null;
+    }
+
     try {
-      if (!this.TeamBalancerStateModel) {
-        Logger.verbose('TeamBalancer', 1, '[DB] saveState called before initDB.');
-        return null;
-      }
-      return await this.sequelize.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
-        const record = await this.TeamBalancerStateModel.findByPk(1, {
-          transaction: t
+      return await this._executeWithRetry(async () => {
+        return await this.sequelize.transaction(async (t) => {
+          const record = await this.TeamBalancerStateModel.findByPk(1, {
+            transaction: t
+          });
+          if (!record) {
+            Logger.verbose('TeamBalancer', 1, '[DB] saveState: state record missing.');
+            return null;
+          }
+          record.winStreakTeam = team;
+          record.winStreakCount = count;
+          record.lastSyncTimestamp = Date.now();
+          await record.save({ transaction: t });
+          Logger.verbose('TeamBalancer', 4, `[DB] Updated: team=${team}, count=${count}`);
+          return {
+            winStreakTeam: record.winStreakTeam,
+            winStreakCount: record.winStreakCount,
+            lastSyncTimestamp: record.lastSyncTimestamp,
+            lastScrambleTime: record.lastScrambleTime
+          };
         });
-        if (!record) {
-          Logger.verbose('TeamBalancer', 1, '[DB] saveState: state record missing.');
-          return null;
-        }
-        record.winStreakTeam = team;
-        record.winStreakCount = count;
-        record.lastSyncTimestamp = Date.now();
-        await record.save({ transaction: t });
-        Logger.verbose('TeamBalancer', 4, `[DB] Updated: team=${team}, count=${count}`);
-        return {
-          winStreakTeam: record.winStreakTeam,
-          winStreakCount: record.winStreakCount,
-          lastSyncTimestamp: record.lastSyncTimestamp,
-          lastScrambleTime: record.lastScrambleTime
-        };
       });
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] saveState failed: ${err.message}`);
@@ -123,9 +144,8 @@ export default class TBDatabase {
 
   async incrementStreak(winnerID) {
     try {
-      return await this.sequelize.transaction({
-        type: Sequelize.Transaction.TYPES.IMMEDIATE
-      }, async (t) => {
+      return await this._executeWithRetry(async () => {
+        return await this.sequelize.transaction(async (t) => {
         const record = await this.TeamBalancerStateModel.findByPk(1, { transaction: t });
         
         if (!record) return null;
@@ -145,6 +165,7 @@ export default class TBDatabase {
           winStreakCount: record.winStreakCount,
           lastSyncTimestamp: record.lastSyncTimestamp
         };
+      });
       });
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] incrementStreak failed: ${err.message}`);
@@ -189,20 +210,23 @@ export default class TBDatabase {
   }
 
   async saveScrambleTime(timestamp) {
+    if (!this.TeamBalancerStateModel) {
+      Logger.verbose('TeamBalancer', 1, '[DB] saveScrambleTime called before initDB.');
+      return null;
+    }
+
     try {
-      if (!this.TeamBalancerStateModel) {
-        Logger.verbose('TeamBalancer', 1, '[DB] saveScrambleTime called before initDB.');
-        return null;
-      }
-      return await this.sequelize.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
-        const record = await this.TeamBalancerStateModel.findByPk(1, {
-          transaction: t
+      return await this._executeWithRetry(async () => {
+        return await this.sequelize.transaction(async (t) => {
+          const record = await this.TeamBalancerStateModel.findByPk(1, {
+            transaction: t
+          });
+          if (!record) return null;
+          record.lastScrambleTime = timestamp;
+          await record.save({ transaction: t });
+          Logger.verbose('TeamBalancer', 4, `[DB] Updated lastScrambleTime: ${timestamp}`);
+          return { lastScrambleTime: record.lastScrambleTime };
         });
-        if (!record) return null;
-        record.lastScrambleTime = timestamp;
-        await record.save({ transaction: t });
-        Logger.verbose('TeamBalancer', 4, `[DB] Updated lastScrambleTime: ${timestamp}`);
-        return { lastScrambleTime: record.lastScrambleTime };
       });
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] saveScrambleTime failed: ${err.message}`);
