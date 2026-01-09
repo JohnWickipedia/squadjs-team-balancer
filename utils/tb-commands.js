@@ -77,7 +77,8 @@ const CommandHandlers = {
       immediateManualScramble: 'Manual team balance triggered by admin | Scrambling teams...',
       executeScrambleMessage: 'Executing scramble...',
       executeDryRunMessage: 'Dry Run: Simulating scramble...',
-      scrambleCompleteMessage: ' Balance has been restored.',
+      scrambleCompleteMessage: 'Balance has been restored.',
+      scrambleFailedMessage: 'Scramble failed! No valid solution found.',
       playerScrambledWarning: "You've been scrambled.", 
 
       system: {
