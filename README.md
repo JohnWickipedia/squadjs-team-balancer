@@ -61,7 +61,7 @@ Operates using a four-phase dynamic escalation system to ensure perfect numerica
 
 ### Performance Benchmarks
 
-*   **Execution Time**: ~1.5ms per search (exhaustive 200-attempt pass).
+*   **Execution Time**: <10ms per search (exhaustive 200-attempt pass).
 *   **Balance Success**: 99.9% rate of achieving a team differential of ≤ 2 players.
 *   **Cohesion**: 100% protection of locked squads under standard balancing conditions.
 
