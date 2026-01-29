@@ -153,29 +153,33 @@ export default class SwapExecutor {
       // Fall back to current counts if update fails
       return {
         totalMoves: this.activeSession.totalMoves,
-        completedMoves: this.activeSession.completedMoves,
-        failedMoves: this.activeSession.failedMoves
+        movedSuccessfully: this.activeSession.completedMoves,
+        failedToMove: this.activeSession.failedMoves,
+        disconnected: 0
       };
     }
 
-    const verified = { completed: 0, failed: 0 };
+    const verified = { moved: 0, failed: 0, disconnected: 0 };
 
     for (const [steamID, moveData] of this.sessionMoves.entries()) {
       const player = this.server.players.find(p => p.steamID === steamID);
 
       if (!player) {
-        verified.completed++; // Player left
+        verified.disconnected++; // Player disconnected
       } else if (String(player.teamID) === String(moveData.targetTeamID)) {
-        verified.completed++; // Correct team
+        verified.moved++; // Successfully on correct team
       } else {
-        verified.failed++; // Wrong team
+        verified.failed++; // Still on wrong team
       }
     }
 
+    Logger.verbose('TeamBalancer', 2, `[SwapExecutor][Verification] ${verified.moved} moved, ${verified.disconnected} disconnected, ${verified.failed} failed (${this.sessionMoves.size} total)`);
+
     return {
       totalMoves: this.sessionMoves.size,
-      completedMoves: verified.completed,
-      failedMoves: verified.failed
+      movedSuccessfully: verified.moved,
+      failedToMove: verified.failed,
+      disconnected: verified.disconnected
     };
   }
 
@@ -191,18 +195,24 @@ export default class SwapExecutor {
       this.overallTimeout = null;
     }
 
-    const { totalMoves, completedMoves, failedMoves } = await this.verifyMoves();
+    const { totalMoves, movedSuccessfully, failedToMove, disconnected } = await this.verifyMoves();
     const duration = Date.now() - this.activeSession.startTime;
-    const successRate = totalMoves > 0 ? Math.round((completedMoves / totalMoves) * 100) : 100;
+    const successRate = totalMoves > 0 ? Math.round((movedSuccessfully / totalMoves) * 100) : 100;
 
-    Logger.verbose('TeamBalancer', 2, `[SwapExecutor] Session complete in ${duration}ms: ${completedMoves}/${totalMoves} (${successRate}%), ${failedMoves} failed`);
+    Logger.verbose('TeamBalancer', 2, `[SwapExecutor] Session complete in ${duration}ms: ${movedSuccessfully} moved, ${disconnected} disconnected, ${failedToMove} failed (${totalMoves} total, ${successRate}%)`);
 
-    if (failedMoves > 0) {
-      Logger.verbose('TeamBalancer', 1, `[SwapExecutor] ${failedMoves} players failed to move; manual action may be required.`);
+    if (failedToMove > 0) {
+      Logger.verbose('TeamBalancer', 1, `[SwapExecutor] ${failedToMove} players failed to move; manual action may be required.`);
     }
 
     if (this.teamBalancer && this.teamBalancer.discordChannel) {
-      const embed = DiscordHelpers.buildScrambleCompletedEmbed(totalMoves, completedMoves, failedMoves, duration);
+      const embed = DiscordHelpers.buildScrambleCompletedEmbed(
+        totalMoves,
+        movedSuccessfully,
+        failedToMove,
+        disconnected,
+        duration
+      );
       DiscordHelpers.sendDiscordMessage(this.teamBalancer.discordChannel, { embeds: [embed] });
     }
 

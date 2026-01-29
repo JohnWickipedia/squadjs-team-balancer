@@ -272,23 +272,24 @@ export const DiscordHelpers = {
     return embed;
   },
 
-  buildScrambleCompletedEmbed(totalMoves, successMoves, failedMoves, duration) {
-    const successRate = totalMoves > 0 ? Math.round((successMoves / totalMoves) * 100) : 100;
+  buildScrambleCompletedEmbed(totalMoves, movedSuccessfully, failedToMove, disconnected, duration) {
+    const successRate = totalMoves > 0 ? Math.round((movedSuccessfully / totalMoves) * 100) : 100;
 
     const embed = {
-      color: failedMoves > 0 ? 0xf39c12 : 0x2ecc71,
+      color: failedToMove > 0 ? 0xf39c12 : 0x2ecc71,
       title: '✅ Scramble Completed',
       fields: [
         { name: 'Total Moves', value: `${totalMoves}`, inline: true },
-        { name: 'Successful', value: `${successMoves}`, inline: true },
-        { name: 'Failed', value: `${failedMoves}`, inline: true },
+        { name: 'Moved Successfully', value: `${movedSuccessfully}`, inline: true },
+        { name: 'Disconnected', value: `${disconnected}`, inline: true },
+        { name: 'Failed', value: `${failedToMove}`, inline: true },
         { name: 'Success Rate', value: `${successRate}%`, inline: true },
         { name: 'Duration', value: `${duration}ms`, inline: true }
       ],
       timestamp: new Date().toISOString()
     };
 
-    if (failedMoves > 0) {
+    if (failedToMove > 0) {
       embed.description = '⚠️ Some players could not be moved. Check logs for details.';
     }
 
