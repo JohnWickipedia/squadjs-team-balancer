@@ -26,6 +26,7 @@ export default class SwapExecutor {
     this.overallTimeout = null;
     this.activeSession = null;
     this.isProcessing = false;
+    this.sessionMoves = new Map(); // Track all moves for verification
   }
 
   async queueMove(steamID, targetTeamID, isSimulated = false) {
@@ -39,6 +40,8 @@ export default class SwapExecutor {
       attempts: 0,
       startTime: Date.now()
     });
+
+    this.sessionMoves.set(steamID, { targetTeamID });
 
     Logger.verbose('TeamBalancer', 4, `[SwapExecutor] Queued move for ${steamID} -> ${targetTeamID}`);
 
@@ -142,11 +145,42 @@ export default class SwapExecutor {
     }
   }
 
-  completeSession() {
-    if (!this.activeSession) return;
+  async verifyMoves() {
+    try {
+      await this.server.updatePlayerList();
+    } catch (err) {
+      Logger.verbose('TeamBalancer', 1, `[SwapExecutor] Failed to update player list for verification: ${err?.message || err}`);
+      // Fall back to current counts if update fails
+      return {
+        totalMoves: this.activeSession.totalMoves,
+        completedMoves: this.activeSession.completedMoves,
+        failedMoves: this.activeSession.failedMoves
+      };
+    }
 
-    const duration = Date.now() - this.activeSession.startTime;
-    const { totalMoves, completedMoves, failedMoves } = this.activeSession;
+    const verified = { completed: 0, failed: 0 };
+
+    for (const [steamID, moveData] of this.sessionMoves.entries()) {
+      const player = this.server.players.find(p => p.steamID === steamID);
+
+      if (!player) {
+        verified.completed++; // Player left
+      } else if (String(player.teamID) === String(moveData.targetTeamID)) {
+        verified.completed++; // Correct team
+      } else {
+        verified.failed++; // Wrong team
+      }
+    }
+
+    return {
+      totalMoves: this.sessionMoves.size,
+      completedMoves: verified.completed,
+      failedMoves: verified.failed
+    };
+  }
+
+  async completeSession() {
+    if (!this.activeSession) return;
 
     if (this.scrambleRetryTimer) {
       clearInterval(this.scrambleRetryTimer);
@@ -157,6 +191,8 @@ export default class SwapExecutor {
       this.overallTimeout = null;
     }
 
+    const { totalMoves, completedMoves, failedMoves } = await this.verifyMoves();
+    const duration = Date.now() - this.activeSession.startTime;
     const successRate = totalMoves > 0 ? Math.round((completedMoves / totalMoves) * 100) : 100;
 
     Logger.verbose('TeamBalancer', 2, `[SwapExecutor] Session complete in ${duration}ms: ${completedMoves}/${totalMoves} (${successRate}%), ${failedMoves} failed`);
@@ -171,6 +207,7 @@ export default class SwapExecutor {
     }
 
     this.pendingPlayerMoves.clear();
+    this.sessionMoves.clear(); 
     this.activeSession = null;
   }
 
@@ -195,6 +232,7 @@ export default class SwapExecutor {
       this.overallTimeout = null;
     }
     this.pendingPlayerMoves.clear();
+    this.sessionMoves.clear(); 
     this.activeSession = null;
   }
 }
