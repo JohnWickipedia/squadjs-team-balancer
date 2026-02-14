@@ -70,6 +70,8 @@ const CommandHandlers = {
 
       scrambleAnnouncement:
         '{team} has reached {count} dominant wins ({margin} tickets) | Scrambling in {delay}s...',
+      consecutiveWinsScramble:
+        '{team} has won {count} consecutive rounds | Scrambling in {delay}s...',
       singleRoundScramble:
         'Extreme ticket difference detected ({margin} tickets) | Scrambling in {delay}s...',
       manualScrambleAnnouncement:

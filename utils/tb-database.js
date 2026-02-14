@@ -51,7 +51,9 @@ export default class TBDatabase {
           winStreakTeam: { type: DataTypes.INTEGER, allowNull: true },
           winStreakCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
           lastSyncTimestamp: { type: DataTypes.BIGINT, allowNull: true },
-          lastScrambleTime: { type: DataTypes.BIGINT, allowNull: true }
+          lastScrambleTime: { type: DataTypes.BIGINT, allowNull: true },
+          consecutiveWinsTeam: { type: DataTypes.INTEGER, allowNull: true },
+          consecutiveWinsCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
         },
         { timestamps: false, tableName: 'TeamBalancerState' }
       );
@@ -66,7 +68,9 @@ export default class TBDatabase {
             winStreakTeam: null,
             winStreakCount: 0,
             lastSyncTimestamp: Date.now(),
-            lastScrambleTime: null
+            lastScrambleTime: null,
+            consecutiveWinsTeam: null,
+            consecutiveWinsCount: 0
           },
           transaction: t
         });
@@ -81,7 +85,9 @@ export default class TBDatabase {
             winStreakCount: record.winStreakCount,
             lastSyncTimestamp: record.lastSyncTimestamp,
             lastScrambleTime: record.lastScrambleTime,
-            isStale: false
+            isStale: false,
+            consecutiveWinsTeam: record.consecutiveWinsTeam,
+            consecutiveWinsCount: record.consecutiveWinsCount
           };
         }
 
@@ -90,6 +96,8 @@ export default class TBDatabase {
         record.winStreakTeam = null;
         record.winStreakCount = 0;
         record.lastSyncTimestamp = Date.now();
+        record.consecutiveWinsTeam = null;
+        record.consecutiveWinsCount = 0;
         await record.save({ transaction: t });
 
         return {
@@ -97,7 +105,9 @@ export default class TBDatabase {
           winStreakCount: 0,
           lastSyncTimestamp: record.lastSyncTimestamp,
           lastScrambleTime,
-          isStale: true
+          isStale: true,
+          consecutiveWinsTeam: null,
+          consecutiveWinsCount: 0
         };
       });
       });
@@ -107,7 +117,7 @@ export default class TBDatabase {
     }
   }
 
-  async saveState(team, count) {
+  async saveState(team, count, conTeam = null, conCount = 0) {
     if (!this.TeamBalancerStateModel) {
       Logger.verbose('TeamBalancer', 1, '[DB] saveState called before initDB.');
       return null;
@@ -126,13 +136,17 @@ export default class TBDatabase {
           record.winStreakTeam = team;
           record.winStreakCount = count;
           record.lastSyncTimestamp = Date.now();
+          record.consecutiveWinsTeam = conTeam;
+          record.consecutiveWinsCount = conCount;
           await record.save({ transaction: t });
           Logger.verbose('TeamBalancer', 4, `[DB] Updated: team=${team}, count=${count}`);
           return {
             winStreakTeam: record.winStreakTeam,
             winStreakCount: record.winStreakCount,
             lastSyncTimestamp: record.lastSyncTimestamp,
-            lastScrambleTime: record.lastScrambleTime
+            lastScrambleTime: record.lastScrambleTime,
+            consecutiveWinsTeam: record.consecutiveWinsTeam,
+            consecutiveWinsCount: record.consecutiveWinsCount
           };
         });
       });
@@ -142,7 +156,7 @@ export default class TBDatabase {
     }
   }
 
-  async incrementStreak(winnerID) {
+  async incrementStreak(winnerID, conTeam, conCount) {
     try {
       return await this._executeWithRetry(async () => {
         return await this.sequelize.transaction(async (t) => {
@@ -158,12 +172,16 @@ export default class TBDatabase {
         }
 
         record.lastSyncTimestamp = Date.now();
+        record.consecutiveWinsTeam = conTeam;
+        record.consecutiveWinsCount = conCount;
         await record.save({ transaction: t });
         
         return {
           winStreakTeam: record.winStreakTeam,
           winStreakCount: record.winStreakCount,
-          lastSyncTimestamp: record.lastSyncTimestamp
+          lastSyncTimestamp: record.lastSyncTimestamp,
+          consecutiveWinsTeam: record.consecutiveWinsTeam,
+          consecutiveWinsCount: record.consecutiveWinsCount
         };
       });
       });

@@ -10,7 +10,9 @@ Scramble execution swaps entire squads or unassigned players, balancing team siz
 
 ## Core Features
 
-* **Win Streak Tracking**: Automatically tracks dominant wins and triggers scrambles after a configurable streak.
+* **Dual Win Streak Tracking**: 
+  - **Dominant Win Streaks**: Tracks wins that meet ticket margin thresholds (default: 150+ tickets). Triggers scramble after X dominant wins (default: 2).
+  - **Consecutive Win Streaks**: Tracks ANY consecutive wins regardless of margin. Optional secondary trigger (default: disabled). Useful for preventing prolonged one-sided matches even when margins are close.
 
 * **Single-Round Scramble**: Optional "Mercy Rule" to scramble immediately after a single game with extreme ticket disparity.
 
@@ -89,6 +91,7 @@ Add to your `config.json`:
   "database": "sqlite",
   "enableWinStreakTracking": true,
   "maxWinStreak": 2,
+  "maxConsecutiveWinsWithoutThreshold": 0,
   "enableSingleRoundScramble": false,
   "singleRoundScrambleThreshold": 250,
   "minTicketsToCountAsDominantWin": 150,
@@ -158,6 +161,7 @@ Core Settings:
 database                       - The Sequelize connector for persistent data storage.
 enableWinStreakTracking        - Enable/disable automatic win streak tracking.
 maxWinStreak                   - Number of dominant wins to trigger a scramble.
+maxConsecutiveWinsWithoutThreshold - Trigger scramble after X consecutive wins, ignoring ticket thresholds. Set to 0 to disable (default: 0).
 enableSingleRoundScramble      - Enable scramble if a single round ticket margin is huge.
 singleRoundScrambleThreshold   - Ticket margin to trigger single-round scramble.
 minTicketsToCountAsDominantWin - Min ticket diff for a dominant win (Standard).
@@ -193,6 +197,38 @@ devMode                        - Enable dev mode. Allows anyone (regardless of a
 -   **RAAS / AAS**: Uses standard ticket diff threshold
 -   **Invasion**: Uses separate thresholds for attackers and defenders
 -   Mode-aware streak logic and messaging
+
+## Win Tracking Systems
+
+The plugin operates two independent win tracking systems that can trigger scrambles:
+
+### Dominant Win Streaks (Primary)
+Tracks wins where the victor exceeded configured ticket margin thresholds:
+- **Standard modes (RAAS/AAS)**: `minTicketsToCountAsDominantWin` (default: 150)
+- **Invasion mode**: Separate thresholds for attackers (`invasionAttackTeamThreshold`: 300) and defenders (`invasionDefenceTeamThreshold`: 650)
+
+A scramble triggers when one team achieves `maxWinStreak` dominant victories in a row (default: 2).
+
+**Use case**: Prevents sustained one-sided stomps where skill/strategy gap is clear.
+
+### Consecutive Win Streaks (Secondary - Optional)
+Tracks ANY consecutive wins regardless of ticket margin. Controlled via `maxConsecutiveWinsWithoutThreshold`:
+- **Set to 0** (default): Feature disabled
+- **Set to X > 0**: Triggers scramble after X consecutive wins, even if margins were close
+
+**Use case**: Prevents prolonged one-sided outcomes in matches with consistent but narrow victories. Example: Team repeatedly wins by 20-50 tickets over 5+ rounds.
+
+**Independence**: Both systems track simultaneously. Either can trigger a scramble. Resets are independent—a dominant streak can reset while consecutive streak continues, and vice versa.
+
+**Example Configuration**:
+```json
+"maxWinStreak": 2,                          // Scramble after 2 dominant wins
+"maxConsecutiveWinsWithoutThreshold": 5,    // Also scramble after 5 ANY consecutive wins
+"minTicketsToCountAsDominantWin": 150       // Dominant = 150+ ticket margin
+```
+In this setup, scrambles trigger if Team 1 either:
+- Wins 2 rounds with 150+ ticket margins, OR
+- Wins 5 rounds in a row with any margin (e.g., five 30-ticket victories)
 
 ## Developer Mode
 

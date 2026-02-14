@@ -145,6 +145,11 @@ export default class TeamBalancer extends BasePlugin {
         default: 2,
         type: 'number'
       },      
+      maxConsecutiveWinsWithoutThreshold: {
+        default: 0,
+        type: 'number',
+        description: 'Trigger scramble after X consecutive wins, ignoring ticket thresholds. Set to 0 to disable.'
+      },
       enableSingleRoundScramble: {
         default: false,
         type: 'boolean'
@@ -273,6 +278,8 @@ export default class TeamBalancer extends BasePlugin {
     this.db = new TBDatabase(this.server, this.options, connectors);
     this.winStreakTeam = null;
     this.winStreakCount = 0;
+    this.consecutiveWinsTeam = null;
+    this.consecutiveWinsCount = 0;
     this.lastSyncTimestamp = null;
     this.manuallyDisabled = false;
     this.scrambleConfirmation = null;
@@ -311,6 +318,8 @@ export default class TeamBalancer extends BasePlugin {
       if (dbState && !dbState.isStale) {
         this.winStreakTeam = dbState.winStreakTeam;
         this.winStreakCount = dbState.winStreakCount;
+        this.consecutiveWinsTeam = dbState.consecutiveWinsTeam;
+        this.consecutiveWinsCount = dbState.consecutiveWinsCount;
         this.lastSyncTimestamp = dbState.lastSyncTimestamp;
         this.lastScrambleTime = dbState.lastScrambleTime;
         Logger.verbose('TeamBalancer', 4, `[DB] Restored state: team=${this.winStreakTeam}, count=${this.winStreakCount}`);
@@ -690,10 +699,13 @@ export default class TeamBalancer extends BasePlugin {
       this._scramblePending = false;      
       try {
         const flippedTeam = this.winStreakTeam === 1 ? 2 : this.winStreakTeam === 2 ? 1 : null;
-        const dbRes = await this.db.saveState(flippedTeam, this.winStreakCount);
+        const flippedConTeam = this.consecutiveWinsTeam === 1 ? 2 : this.consecutiveWinsTeam === 2 ? 1 : null;
+        const dbRes = await this.db.saveState(flippedTeam, this.winStreakCount, flippedConTeam, this.consecutiveWinsCount);
         if (dbRes) {
           this.winStreakTeam = dbRes.winStreakTeam;
           this.winStreakCount = dbRes.winStreakCount;
+          this.consecutiveWinsTeam = dbRes.consecutiveWinsTeam;
+          this.consecutiveWinsCount = dbRes.consecutiveWinsCount;
           this.lastSyncTimestamp = dbRes.lastSyncTimestamp;
         }
       } catch (err) {
@@ -707,6 +719,8 @@ export default class TeamBalancer extends BasePlugin {
         const dbRes = await this.db.saveState(null, 0);
         this.winStreakTeam = null;
         this.winStreakCount = 0;
+        this.consecutiveWinsTeam = null;
+        this.consecutiveWinsCount = 0;
         if (dbRes) this.lastSyncTimestamp = dbRes.lastSyncTimestamp;
       } catch (err) {
         Logger.verbose('TeamBalancer', 1, `[DB] onNewGame fallback saveState failed: ${err.message}`);
@@ -758,6 +772,35 @@ export default class TeamBalancer extends BasePlugin {
       }
 
       Logger.verbose('TeamBalancer', 4, `Parsed winnerID=${winnerID}, winnerTickets=${winnerTickets}, loserTickets=${loserTickets}, margin=${margin}`);
+
+      // --- Consecutive Wins Tracking (Independent of Dominance) ---
+      if (this.consecutiveWinsTeam === winnerID) {
+        this.consecutiveWinsCount++;
+      } else {
+        this.consecutiveWinsTeam = winnerID;
+        this.consecutiveWinsCount = 1;
+      }
+      Logger.verbose('TeamBalancer', 4, `Consecutive wins: Team ${this.consecutiveWinsTeam} has ${this.consecutiveWinsCount} wins.`);
+
+      if (this._scramblePending || this._scrambleInProgress) return;
+
+      if (this.options.maxConsecutiveWinsWithoutThreshold > 0 && this.consecutiveWinsCount >= this.options.maxConsecutiveWinsWithoutThreshold) {
+        Logger.verbose('TeamBalancer', 2, `[ConsecutiveWins] Triggered! Count: ${this.consecutiveWinsCount} >= Threshold: ${this.options.maxConsecutiveWinsWithoutThreshold}`);
+        const message = `${this.RconMessages.prefix} ${this.formatMessage(this.RconMessages.consecutiveWinsScramble, {
+          team: this.getTeamName(winnerID),
+          count: this.consecutiveWinsCount,
+          delay: this.options.scrambleAnnouncementDelay
+        })}`;
+        
+        try {
+          await this.server.rcon.broadcast(message);
+        } catch (e) {
+          Logger.verbose('TeamBalancer', 1, `Failed to broadcast consecutive wins scramble message: ${e.message}`);
+        }
+        await this.mirrorRconToDiscord(message, 'warning');
+        this.initiateScramble(false, false);
+        return;
+      }
 
       const isInvasion = this.gameModeCached?.toLowerCase().includes('invasion') ?? false;
 
@@ -880,7 +923,7 @@ export default class TeamBalancer extends BasePlugin {
           }
           await this.mirrorRconToDiscord(message, 'info');
         }
-        return await this.resetStreak(`Non-dominant win by team ${winnerID}`);
+        return await this.resetStreak(`Non-dominant win by team ${winnerID}`, false);
       }
 
       Logger.verbose('TeamBalancer', 4, 'Dominant win detected under standard mode.');
@@ -893,10 +936,12 @@ export default class TeamBalancer extends BasePlugin {
       }
 
       try {
-        const dbRes = await this.db.incrementStreak(winnerID);
+        const dbRes = await this.db.incrementStreak(winnerID, this.consecutiveWinsTeam, this.consecutiveWinsCount);
         if (dbRes) {
           this.winStreakTeam = dbRes.winStreakTeam;
           this.winStreakCount = dbRes.winStreakCount;
+          this.consecutiveWinsTeam = dbRes.consecutiveWinsTeam;
+          this.consecutiveWinsCount = dbRes.consecutiveWinsCount;
           this.lastSyncTimestamp = dbRes.lastSyncTimestamp;
         } else {
           // Fallback if DB fails
@@ -994,12 +1039,21 @@ export default class TeamBalancer extends BasePlugin {
     }
   }
 
-  async resetStreak(reason = 'unspecified') {
+  async resetStreak(reason = 'unspecified', resetConsecutive = true) {
     Logger.verbose('TeamBalancer', 4, `Resetting streak: ${reason}`);
     try {
-      const dbRes = await this.db.saveState(null, 0);
+      const dbRes = await this.db.saveState(
+        null, 
+        0, 
+        resetConsecutive ? null : this.consecutiveWinsTeam, 
+        resetConsecutive ? 0 : this.consecutiveWinsCount
+      );
       this.winStreakTeam = null;
       this.winStreakCount = 0;
+      if (resetConsecutive) {
+        this.consecutiveWinsTeam = null;
+        this.consecutiveWinsCount = 0;
+      }
       if (dbRes) this.lastSyncTimestamp = dbRes.lastSyncTimestamp;
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] resetStreak saveState failed: ${err.message}`);

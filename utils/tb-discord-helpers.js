@@ -32,6 +32,11 @@ export const DiscordHelpers = {
       ? `${tb.getTeamName(tb.winStreakTeam)}: ${tb.winStreakCount} / ${maxStreak} wins`
       : `None (Threshold: ${maxStreak} wins)`;
 
+    const maxConsecutive = tb.options?.maxConsecutiveWinsWithoutThreshold || 0;
+    const consecutiveText = tb.consecutiveWinsTeam
+      ? `${tb.getTeamName(tb.consecutiveWinsTeam)}: ${tb.consecutiveWinsCount} / ${maxConsecutive > 0 ? maxConsecutive : 'Off'}`
+      : `None (Threshold: ${maxConsecutive > 0 ? maxConsecutive : 'Off'})`;
+
     let lastScrambleText = 'Never';
     if (tb.lastScrambleTime) {
       const unixTime = Math.floor(tb.lastScrambleTime / 1000);
@@ -49,7 +54,8 @@ export const DiscordHelpers = {
       fields: [
         { name: 'Version', value: tb.constructor.version || 'Unknown', inline: true },
         { name: 'Plugin Status', value: effectiveStatus, inline: true },
-        { name: 'Win Streak', value: winStreakText, inline: false },
+        { name: 'Dominant Streak', value: winStreakText, inline: true },
+        { name: 'Consecutive Streak', value: consecutiveText, inline: true },
         { name: 'Last Scramble', value: lastScrambleText, inline: false },
         { name: 'Player Count', value: `Total: ${players.length} | T1: ${t1Count} | T2: ${t2Count}`, inline: false }
       ],
@@ -96,6 +102,8 @@ export const DiscordHelpers = {
       { name: 'Version', value: tb.constructor.version || 'Unknown', inline: true },
       { name: 'Win Streak', value: tb.winStreakTeam ? `${tb.getTeamName(tb.winStreakTeam)}: ${tb.winStreakCount} win(s)` : 'None', inline: true },
       { name: 'Max Threshold', value: `${tb.options?.maxWinStreak || 2} wins`, inline: true },
+      { name: 'Consecutive', value: tb.consecutiveWinsTeam ? `${tb.getTeamName(tb.consecutiveWinsTeam)}: ${tb.consecutiveWinsCount}` : 'None', inline: true },
+      { name: 'Max Consec.', value: `${tb.options?.maxConsecutiveWinsWithoutThreshold || 0}`, inline: true },
       { name: 'Scramble Pending', value: tb._scramblePending ? 'Yes' : 'No', inline: true },
       { name: 'Scramble Active', value: tb._scrambleInProgress ? 'Yes' : 'No', inline: true },
       { name: 'Pending Moves', value: scrambleInfo, inline: true },
