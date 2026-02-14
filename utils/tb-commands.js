@@ -186,6 +186,11 @@ const CommandHandlers = {
               return await this.respond(player, 'Win streak tracking is already enabled.');
             }
             this.manuallyDisabled = false;
+            try {
+              await this.db.saveManuallyDisabledState(false);
+            } catch (err) {
+              Logger.verbose('TeamBalancer', 1, `[DB] Failed to persist enabled state: ${err.message}`);
+            }
             Logger.verbose('TeamBalancer', 2, `[TeamBalancer] Win streak tracking enabled by ${adminName}`);
             const response = await this.respond(player, 'Win streak tracking enabled.');
             try {
@@ -212,6 +217,11 @@ const CommandHandlers = {
               return await this.respond(player, 'Win streak tracking is already disabled.');
             }
             this.manuallyDisabled = true;
+            try {
+              await this.db.saveManuallyDisabledState(true);
+            } catch (err) {
+              Logger.verbose('TeamBalancer', 1, `[DB] Failed to persist disabled state: ${err.message}`);
+            }
             Logger.verbose('TeamBalancer', 2, `[TeamBalancer] Win streak tracking disabled by ${adminName}`);
             const response = await this.respond(player, 'Win streak tracking disabled.');
             try {

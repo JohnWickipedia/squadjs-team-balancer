@@ -53,7 +53,8 @@ export default class TBDatabase {
           lastSyncTimestamp: { type: DataTypes.BIGINT, allowNull: true },
           lastScrambleTime: { type: DataTypes.BIGINT, allowNull: true },
           consecutiveWinsTeam: { type: DataTypes.INTEGER, allowNull: true },
-          consecutiveWinsCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
+          consecutiveWinsCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+          manuallyDisabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
         },
         { timestamps: false, tableName: 'TeamBalancerState' }
       );
@@ -70,7 +71,8 @@ export default class TBDatabase {
             lastSyncTimestamp: Date.now(),
             lastScrambleTime: null,
             consecutiveWinsTeam: null,
-            consecutiveWinsCount: 0
+            consecutiveWinsCount: 0,
+            manuallyDisabled: false
           },
           transaction: t
         });
@@ -87,7 +89,8 @@ export default class TBDatabase {
             lastScrambleTime: record.lastScrambleTime,
             isStale: false,
             consecutiveWinsTeam: record.consecutiveWinsTeam,
-            consecutiveWinsCount: record.consecutiveWinsCount
+            consecutiveWinsCount: record.consecutiveWinsCount,
+            manuallyDisabled: record.manuallyDisabled
           };
         }
 
@@ -107,13 +110,23 @@ export default class TBDatabase {
           lastScrambleTime,
           isStale: true,
           consecutiveWinsTeam: null,
-          consecutiveWinsCount: 0
+          consecutiveWinsCount: 0,
+          manuallyDisabled: false
         };
       });
       });
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] initDB failed: ${err.message}`);
-      return { winStreakTeam: null, winStreakCount: 0, lastSyncTimestamp: null, lastScrambleTime: null, isStale: true };
+      return {
+        winStreakTeam: null,
+        winStreakCount: 0,
+        lastSyncTimestamp: null,
+        lastScrambleTime: null,
+        isStale: true,
+        consecutiveWinsTeam: null,
+        consecutiveWinsCount: 0,
+        manuallyDisabled: false
+      };
     }
   }
 
@@ -248,6 +261,31 @@ export default class TBDatabase {
       });
     } catch (err) {
       Logger.verbose('TeamBalancer', 1, `[DB] saveScrambleTime failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  async saveManuallyDisabledState(disabled) {
+    if (!this.TeamBalancerStateModel) {
+      Logger.verbose('TeamBalancer', 1, '[DB] saveManuallyDisabledState called before initDB.');
+      return null;
+    }
+
+    try {
+      return await this._executeWithRetry(async () => {
+        return await this.sequelize.transaction(async (t) => {
+          const record = await this.TeamBalancerStateModel.findByPk(1, {
+            transaction: t
+          });
+          if (!record) return null;
+          record.manuallyDisabled = disabled;
+          await record.save({ transaction: t });
+          Logger.verbose('TeamBalancer', 4, `[DB] Updated manuallyDisabled: ${disabled}`);
+          return { manuallyDisabled: record.manuallyDisabled };
+        });
+      });
+    } catch (err) {
+      Logger.verbose('TeamBalancer', 1, `[DB] saveManuallyDisabledState failed: ${err.message}`);
       return null;
     }
   }

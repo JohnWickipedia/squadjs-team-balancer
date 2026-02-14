@@ -322,10 +322,12 @@ export default class TeamBalancer extends BasePlugin {
         this.consecutiveWinsCount = dbState.consecutiveWinsCount;
         this.lastSyncTimestamp = dbState.lastSyncTimestamp;
         this.lastScrambleTime = dbState.lastScrambleTime;
-        Logger.verbose('TeamBalancer', 4, `[DB] Restored state: team=${this.winStreakTeam}, count=${this.winStreakCount}`);
+        this.manuallyDisabled = dbState.manuallyDisabled || false;
+        Logger.verbose('TeamBalancer', 4, `[DB] Restored state: team=${this.winStreakTeam}, count=${this.winStreakCount}, manuallyDisabled=${this.manuallyDisabled}`);
       } else if (dbState) {
         Logger.verbose('TeamBalancer', 4, '[DB] State stale; resetting.');
         this.lastScrambleTime = dbState.lastScrambleTime;
+        this.manuallyDisabled = dbState.manuallyDisabled || false;
         await this.db.saveState(null, 0);
       }
     } catch (err) {
@@ -663,12 +665,22 @@ export default class TeamBalancer extends BasePlugin {
     if (state === 'on') {
       if (!this.manuallyDisabled) return message.reply('✅ Win streak tracking is already enabled.');
       this.manuallyDisabled = false;
+      try {
+        await this.db.saveManuallyDisabledState(false);
+      } catch (err) {
+        Logger.verbose('TeamBalancer', 1, `[DB] Failed to persist enabled state: ${err.message}`);
+      }
       await message.reply('✅ Win streak tracking enabled.');
       await this.server.rcon.broadcast(`${this.RconMessages.prefix} ${this.RconMessages.system.trackingEnabled}`);
       await this.mirrorRconToDiscord(this.RconMessages.system.trackingEnabled, 'info');
     } else {
       if (this.manuallyDisabled) return message.reply('✅ Win streak tracking is already disabled.');
       this.manuallyDisabled = true;
+      try {
+        await this.db.saveManuallyDisabledState(true);
+      } catch (err) {
+        Logger.verbose('TeamBalancer', 1, `[DB] Failed to persist disabled state: ${err.message}`);
+      }
       await message.reply('✅ Win streak tracking disabled.');
       await this.resetStreak('Manual disable via Discord');
       await this.server.rcon.broadcast(`${this.RconMessages.prefix} ${this.RconMessages.system.trackingDisabled}`);
