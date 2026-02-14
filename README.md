@@ -1,4 +1,4 @@
-# Team Balancer Plugin v2.1.0
+# Team Balancer Plugin v2.1.1
 
 **SquadJS Plugin for Fair Match Enforcement**
 
